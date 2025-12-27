@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>카제로스 슬링샷 - 심화 훈련</title>
+    <style>
+        * { user-select: none; -webkit-user-select: none; cursor: default; }
+        body { background: #050505; color: white; text-align: center; font-family: 'Malgun Gothic', sans-serif; overflow: hidden; margin: 0; }
+        #ui-layer { margin-top: 20px; z-index: 200; position: relative; }
+        #timer-bar { width: 350px; height: 8px; background: #222; margin: 10px auto; border-radius: 4px; border: 1px solid #444; }
+        #timer-fill { width: 100%; height: 100%; background: #ff3333; transition: linear; }
+        
+        #game-container { 
+            position: relative; width: 800px; height: 800px; margin: 10px auto; 
+            border: 2px solid #331111; border-radius: 50%; background: radial-gradient(circle, #111, #000);
+            overflow: hidden;
+        }
+        
+        .zone {
+            position: absolute; width: 110px; height: 110px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: bold; border-radius: 15px;
+            pointer-events: none; opacity: 0.2;
+        }
+        .safe { background: rgba(0, 255, 100, 0.3); border: 2px solid lime; opacity: 0.8; box-shadow: 0 0 15px rgba(0,255,0,0.3); }
+        .danger { background: rgba(255, 0, 0, 0.4); border: 2px solid red; opacity: 0.8; }
+
+        #player {
+            width: 40px; height: 40px; background: #555; border-radius: 50%;
+            position: absolute; top: 380px; left: 380px; 
+            box-shadow: 0 0 10px #444; z-index: 100;
+            transition: transform 0.1s, background 0.1s;
+        }
+        
+        /* 상태별 시각 효과 */
+        #player.shielded { border: 3px solid #fff000; box-shadow: 0 0 20px #fff000; } /* 4번 입력 */
+        #player.just-guard { background: #00ffff !important; box-shadow: 0 0 35px #00ffff !important; } /* G 입력 */
+
+        #landing-marker {
+            width: 40px; height: 40px; border: 2px dashed rgba(255, 255, 255, 0.5);
+            border-radius: 50%; position: absolute; display: none;
+            pointer-events: none; z-index: 40;
+        }
+
+        #aim-line {
+            position: absolute; height: 3px; background: linear-gradient(to right, white, transparent);
+            transform-origin: 0 50%; pointer-events: none; display: none; z-index: 50;
+        }
+        #status { font-size: 22px; font-weight: bold; color: #fff; height: 30px; }
+        #sub-status { font-size: 15px; color: #ffeb3b; margin-top: 5px; height: 20px; }
+    </style>
+</head>
+<body>
+    <div id="ui-layer">
+        <div id="status">캐릭터를 드래그하세요!</div>
+        <div id="sub-status">SAFE: G / DANGER: 4 -> G</div>
+        <div id="timer-bar"><div id="timer-fill"></div></div>
+    </div>
+    
+    <div id="game-container">
+        <div id="zones-container"></div>
+        <div id="aim-line"></div>
+        <div id="landing-marker"></div>
+        <div id="player"></div>
+    </div>
+
+    <script>
+        const player = document.getElementById('player');
+        const aimLine = document.getElementById('aim-line');
+        const landingMarker = document.getElementById('landing-marker');
+        const status = document.getElementById('status');
+        const timerFill = document.getElementById('timer-fill');
+        const zonesContainer = document.getElementById('zones-container');
+
+        let isDragging = false, isActive = false, canShoot = true;
+        let hasPressed4 = false;
+        let hasPressedG = false;
+        let pX = 380, pY = 380;
+        let safeZones = [];
+
+        function createZones() {
+            zonesContainer.innerHTML = '';
+            const shuffled = [...Array(8).keys()].sort(() => 0.5 - Math.random());
+            safeZones = shuffled.slice(0, 4);
+
+            for(let i=0; i<8; i++) {
+                const angle = i * 45;
+                const rad = (angle - 90) * (Math.PI / 180);
+                const x = 345 + 320 * Math.cos(rad);
+                const y = 345 + 320 * Math.sin(rad);
+                const zone = document.createElement('div');
+                const isSafe = safeZones.includes(i);
+                zone.className = `zone ${isSafe ? 'safe' : 'danger'}`;
+                zone.style.left = x + 'px';
+                zone.style.top = y + 'px';
+                zone.innerHTML = isSafe ? "<span>SAFE</span><span style='font-size:10px'>G</span>" : "<span>DANGER</span><span style='font-size:10px'>4 → G</span>";
+                zonesContainer.appendChild(zone);
+            }
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (!isActive) return;
+            if (e.key === '4') {
+                hasPressed4 = true;
+                player.classList.add('shielded');
+            } else if (e.key.toLowerCase() === 'g') {
+                hasPressedG = true;
+                player.classList.add('just-guard');
+            }
+        });
+
+        player.addEventListener('mousedown', (e) => {
+            if (!canShoot) return;
+            isDragging = true;
+            startX = e.clientX; startY = e.clientY;
+            if (!isActive) startRound(); 
+            aimLine.style.display = 'block';
+            landingMarker.style.display = 'block';
+            player.style.transform = "scale(1.2)";
+            e.preventDefault(); 
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            const angle = Math.atan2(-dy, -dx);
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            aimLine.style.width = Math.min(dist, 150) + 'px';
+            aimLine.style.left = (pX + 20) + 'px';
+            aimLine.style.top = (pY + 20) + 'px';
+            aimLine.style.transform = `rotate(${angle}rad)`;
+
+            let predX = pX - dx * 1.3;
+            let predY = pY - dy * 1.3;
+            predX = Math.max(10, Math.min(750, predX));
+            predY = Math.max(10, Math.min(750, predY));
+            landingMarker.style.left = predX + 'px';
+            landingMarker.style.top = predY + 'px';
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (!isDragging) return;
+            isDragging = false;
+            aimLine.style.display = 'none';
+            landingMarker.style.display = 'none';
+            player.style.transform = "scale(1)";
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            pX -= dx * 1.3; pY -= dy * 1.3;
+            pX = Math.max(10, Math.min(750, pX));
+            pY = Math.max(10, Math.min(750, pY));
+            player.style.transition = "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
+            player.style.left = pX + 'px';
+            player.style.top = pY + 'px';
+            setTimeout(() => { player.style.transition = "none"; }, 400);
+        });
+
+        function startRound() {
+            isActive = true;
+            hasPressed4 = false;
+            hasPressedG = false;
+            player.className = '';
+            timerFill.style.transition = "2s linear";
+            timerFill.style.width = "0%";
+            status.innerText = "2초! 조작을 완료하세요!";
+            status.style.color = "#00d9ff";
+            setTimeout(checkResult, 2000);
+        }
+
+        function checkResult() {
+            canShoot = false;
+            let currentZoneType = "OUT"; // OUT, SAFE, DANGER
+            const pW = 40; const pH = 40; 
+
+            // 현재 위치 구역 확인
+            document.querySelectorAll('.zone').forEach(zone => {
+                const zX = parseFloat(zone.style.left);
+                const zY = parseFloat(zone.style.top);
+                if (pX >= zX && pY >= zY && (pX + pW) <= (zX + 110) && (pY + pH) <= (zY + 110)) {
+                    currentZoneType = zone.classList.contains('safe') ? "SAFE" : "DANGER";
+                }
+            });
+
+            let success = false;
+            let msg = "";
+
+            if (currentZoneType === "SAFE") {
+                if (hasPressedG) { success = true; msg = "저스트 가드 성공!"; }
+                else { success = false; msg = "G를 누르지 않았습니다!"; }
+            } 
+            else if (currentZoneType === "DANGER") {
+                if (hasPressed4 && hasPressedG) { success = true; msg = "실드 후 가드 성공!"; }
+                else if (!hasPressed4) { success = false; msg = "4번(실드)을 먼저 써야 합니다!"; }
+                else { success = false; msg = "마지막에 G를 눌러야 합니다!"; }
+            } 
+            else {
+                success = false; msg = "구역 안착 실패!";
+            }
+
+            status.innerText = msg;
+            status.style.color = success ? "lime" : "red";
+            setTimeout(reset, 2000);
+        }
+
+        function reset() {
+            pX = 380; pY = 380;
+            player.style.transition = "0.5s";
+            player.style.left = pX + 'px'; player.style.top = pY + 'px';
+            player.className = '';
+            status.innerText = "다음 라운드...";
+            status.style.color = "white";
+            timerFill.style.transition = "none";
+            timerFill.style.width = "100%";
+            isActive = false; canShoot = true;
+            createZones();
+        }
+
+        window.oncontextmenu = (e) => e.preventDefault();
+        createZones();
+    </script>
+</body>
+</html>
